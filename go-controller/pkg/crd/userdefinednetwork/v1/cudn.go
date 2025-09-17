@@ -189,6 +189,73 @@ type LocalnetConfig struct {
 }
 
 // AccessVLANConfig describes an access VLAN configuration.
+//type AccessVLANConfig struct {
+	// id is the VLAN ID (VID) to be set for the network.
+	// id should be higher than 0 and lower than 4095.
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=4094
+//	ID int32 `json:"id"`
+//}
+
+// +kubebuilder:validation:Enum=Access
+//type VLANMode string
+
+//const VLANModeAccess VLANMode = "Access"
+
+// VLANConfig describes the network VLAN configuration.
+// +union
+// +kubebuilder:validation:XValidation:rule="has(self.mode) && self.mode == 'Access' ? has(self.access): !has(self.access)", message="vlan access config is required when vlan mode is 'Access', and forbidden otherwise"
+//type VLANConfig struct {
+	// mode describe the network VLAN mode.
+	// Allowed value is "Access".
+	// Access sets the network logical switch port in access mode, according to the config.
+	// +required
+	// +unionDiscriminator
+//	Mode VLANMode `json:"mode"`
+
+	// Access is the access VLAN configuration
+	// +optional
+//	Access *AccessVLANConfig `json:"access"`
+//}
+
+// ===================================================================
+
+// TO: Enhanced VLAN support with Trunk mode
+// +kubebuilder:validation:Enum=Access;Trunk
+
+// ===================================================================
+
+type VLANMode string
+
+const (
+	VLANModeAccess VLANMode = "Access"
+	VLANModeTrunk  VLANMode = "Trunk"
+)
+
+// VLANConfig describes the network VLAN configuration.
+// +union
+// +kubebuilder:validation:XValidation:rule="has(self.mode) && self.mode == 'Access' ? has(self.access): !has(self.access)", message="vlan access config is required when vlan mode is 'Access', and forbidden otherwise"
+// +kubebuilder:validation:XValidation:rule="has(self.mode) && self.mode == 'Trunk' ? has(self.trunk): !has(self.trunk)", message="vlan trunk config is required when vlan mode is 'Trunk', and forbidden otherwise"
+type VLANConfig struct {
+	// mode describe the network VLAN mode.
+	// Allowed values are "Access" and "Trunk".
+	// Access sets the network logical switch port in access mode, according to the config.
+	// Trunk sets the network logical switch port in trunk mode, allowing multiple VLANs.
+	// +required
+	// +unionDiscriminator
+	Mode VLANMode `json:"mode"`
+
+	// Access is the access VLAN configuration
+	// +optional
+	Access *AccessVLANConfig `json:"access,omitempty"`
+
+	// Trunk is the trunk VLAN configuration
+	// +optional
+	Trunk *TrunkVLANConfig `json:"trunk,omitempty"`
+}
+
+// AccessVLANConfig describes an access VLAN configuration.
 type AccessVLANConfig struct {
 	// id is the VLAN ID (VID) to be set for the network.
 	// id should be higher than 0 and lower than 4095.
@@ -198,23 +265,50 @@ type AccessVLANConfig struct {
 	ID int32 `json:"id"`
 }
 
-// +kubebuilder:validation:Enum=Access
-type VLANMode string
-
-const VLANModeAccess VLANMode = "Access"
-
-// VLANConfig describes the network VLAN configuration.
-// +union
-// +kubebuilder:validation:XValidation:rule="has(self.mode) && self.mode == 'Access' ? has(self.access): !has(self.access)", message="vlan access config is required when vlan mode is 'Access', and forbidden otherwise"
-type VLANConfig struct {
-	// mode describe the network VLAN mode.
-	// Allowed value is "Access".
-	// Access sets the network logical switch port in access mode, according to the config.
+// TrunkVLANConfig describes a trunk VLAN configuration.
+type TrunkVLANConfig struct {
+	// allowedVLANs is a list of VLAN IDs that are allowed on the trunk port.
+	// Each VLAN ID should be higher than 0 and lower than 4095.
+	// Maximum of 100 VLANs can be specified.
 	// +required
-	// +unionDiscriminator
-	Mode VLANMode `json:"mode"`
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=100
+	// +kubebuilder:validation:UniqueItems=true
+	AllowedVLANs []int32 `json:"allowedVLANs"`
 
-	// Access is the access VLAN configuration
+	// nativeVLAN is the native (untagged) VLAN ID for the trunk port.
+	// When specified, traffic for this VLAN will be untagged.
+	// nativeVLAN should be higher than 0 and lower than 4095.
+	// nativeVLAN must be included in allowedVLANs if specified.
 	// +optional
-	Access *AccessVLANConfig `json:"access"`
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=4094
+	NativeVLAN *int32 `json:"nativeVLAN,omitempty"`
 }
+
+// ===================================================================
+
+// ADDITIONAL VALIDATION REQUIRED:
+// Add this validation to TrunkVLANConfig to ensure nativeVLAN is in allowedVLANs:
+// +kubebuilder:validation:XValidation:rule="!has(self.nativeVLAN) || self.allowedVLANs.exists(v, v == self.nativeVLAN)", message="nativeVLAN must be included in allowedVLANs when specified"
+
+// ===================================================================
+
+// UPDATED LocalnetConfig comment section would need this change:
+// FROM:
+// vlan configuration for the network.
+// vlan.mode is the VLAN mode.
+//   When "Access" is set, OVN-Kubernetes configures the network logical switch port in access mode.
+// vlan.access is the access VLAN configuration.
+// vlan.access.id is the VLAN ID (VID) to be set on the network logical switch port.
+
+// TO:
+// vlan configuration for the network.
+// vlan.mode is the VLAN mode.
+//   When "Access" is set, OVN-Kubernetes configures the network logical switch port in access mode.
+//   When "Trunk" is set, OVN-Kubernetes configures the network logical switch port in trunk mode, allowing multiple VLANs.
+// vlan.access is the access VLAN configuration.
+// vlan.access.id is the VLAN ID (VID) to be set on the network logical switch port.
+// vlan.trunk is the trunk VLAN configuration.
+// vlan.trunk.allowedVLANs is the list of VLAN IDs allowed on the trunk port.
+// vlan.trunk.nativeVLAN is the optional native (untagged) VLAN ID.
