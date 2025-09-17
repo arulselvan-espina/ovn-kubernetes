@@ -297,13 +297,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"strconv"
 	"strings"
-
+	
 	cnitypes "github.com/containernetworking/cni/pkg/types"
 	netv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
+	
 	ovncnitypes "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/cni/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	userdefinednetworkv1 "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/userdefinednetwork/v1"
@@ -327,6 +328,92 @@ type SpecGetter interface {
 	GetLayer3() *userdefinednetworkv1.Layer3Config
 	GetLayer2() *userdefinednetworkv1.Layer2Config
 	GetLocalnet() *userdefinednetworkv1.LocalnetConfig
+}
+
+// ParseVLANRange parses a VLAN specification (individual ID or range) and returns all VLAN IDs
+func ParseVLANRange(vlanSpec string) ([]int, error) {
+	vlanSpec = strings.TrimSpace(vlanSpec)
+	
+	// Check if it's a range (e.g., "110-120")
+	if strings.Contains(vlanSpec, "-") {
+		parts := strings.Split(vlanSpec, "-")
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid VLAN range format: %s", vlanSpec)
+		}
+		
+		start, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+		if err != nil {
+			return nil, fmt.Errorf("invalid start VLAN ID in range %s: %v", vlanSpec, err)
+		}
+		
+		end, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err != nil {
+			return nil, fmt.Errorf("invalid end VLAN ID in range %s: %v", vlanSpec, err)
+		}
+		
+		if start < 1 || start > 4094 || end < 1 || end > 4094 {
+			return nil, fmt.Errorf("VLAN IDs must be between 1 and 4094, got range %s", vlanSpec)
+		}
+		
+		if start >= end {
+			return nil, fmt.Errorf("start VLAN ID must be less than end VLAN ID in range %s", vlanSpec)
+		}
+		
+		var vlans []int
+		for i := start; i <= end; i++ {
+			vlans = append(vlans, i)
+		}
+		return vlans, nil
+	} else {
+		// Single VLAN ID
+		vlanID, err := strconv.Atoi(vlanSpec)
+		if err != nil {
+			return nil, fmt.Errorf("invalid VLAN ID: %s", vlanSpec)
+		}
+		
+		if vlanID < 1 || vlanID > 4094 {
+			return nil, fmt.Errorf("VLAN ID must be between 1 and 4094, got %d", vlanID)
+		}
+		
+		return []int{vlanID}, nil
+	}
+}
+
+// ValidateVLANSpecs validates a list of VLAN specifications
+func ValidateVLANSpecs(vlanSpecs []string) error {
+	seenVLANs := make(map[int]bool)
+	
+	for _, spec := range vlanSpecs {
+		vlans, err := ParseVLANRange(spec)
+		if err != nil {
+			return err
+		}
+		
+		// Check for duplicates
+		for _, vlan := range vlans {
+			if seenVLANs[vlan] {
+				return fmt.Errorf("duplicate VLAN ID %d found", vlan)
+			}
+			seenVLANs[vlan] = true
+		}
+	}
+	
+	return nil
+}
+
+// ExpandVLANSpecs expands VLAN specifications into individual VLAN IDs
+func ExpandVLANSpecs(vlanSpecs []string) ([]int, error) {
+	var allVLANs []int
+	
+	for _, spec := range vlanSpecs {
+		vlans, err := ParseVLANRange(spec)
+		if err != nil {
+			return nil, err
+		}
+		allVLANs = append(allVLANs, vlans...)
+	}
+	
+	return allVLANs, nil
 }
 
 func RenderNetAttachDefManifest(obj client.Object, targetNamespace string) (*netv1.NetworkAttachmentDefinition, error) {
@@ -434,15 +521,35 @@ func renderVLANConfig(vlanConfig *userdefinednetworkv1.VLANConfig) (*ovncnitypes
 		}
 		cniVLAN.Mode = VLANModeTrunk
 		
-		// Convert allowed VLANs from int32 slice to int slice
-		cniVLAN.TrunkVLANs = make([]int, len(vlanConfig.Trunk.AllowedVLANs))
-		for i, vlan := range vlanConfig.Trunk.AllowedVLANs {
-			cniVLAN.TrunkVLANs[i] = int(vlan)
+		// Convert allowed VLANs from string slice (supporting ranges) to string slice
+		cniVLAN.TrunkVLANs = make([]string, len(vlanConfig.Trunk.AllowedVLANs))
+		copy(cniVLAN.TrunkVLANs, vlanConfig.Trunk.AllowedVLANs)
+		
+		// Validate VLAN specifications
+		if err := ValidateVLANSpecs(cniVLAN.TrunkVLANs); err != nil {
+			return nil, fmt.Errorf("invalid trunk VLANs: %w", err)
 		}
 		
 		// Set native VLAN if specified
 		if vlanConfig.Trunk.NativeVLAN != nil {
 			cniVLAN.NativeVLAN = int(*vlanConfig.Trunk.NativeVLAN)
+			
+			// Verify native VLAN is in the expanded VLAN list
+			expandedVLANs, err := ExpandVLANSpecs(cniVLAN.TrunkVLANs)
+			if err != nil {
+				return nil, fmt.Errorf("failed to expand VLAN specs: %w", err)
+			}
+			
+			found := false
+			for _, vlan := range expandedVLANs {
+				if vlan == cniVLAN.NativeVLAN {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, fmt.Errorf("native VLAN %d must be included in trunkVLANs list", cniVLAN.NativeVLAN)
+			}
 		}
 		
 	default:
@@ -502,11 +609,6 @@ func renderCNINetworkConfig(networkName, nadName string, spec SpecGetter) (map[s
 				return nil, fmt.Errorf("failed to render VLAN config: %w", err)
 			}
 			netConfSpec.VLAN = vlanConfig
-			
-			// Maintain backward compatibility with VLANID field
-			if cfg.VLAN.Access != nil {
-				netConfSpec.VLANID = int(cfg.VLAN.Access.ID)
-			}
 		}
 	}
 
@@ -563,7 +665,7 @@ func renderCNINetworkConfig(networkName, nadName string, spec SpecGetter) (map[s
 		cniNetConf["excludeSubnets"] = netConfSpec.ExcludeSubnets
 	}
 
-	// Handle VLAN configuration (both legacy and new format)
+	// Handle VLAN configuration - only new format, no backward compatibility
 	if netConfSpec.VLAN != nil {
 		vlanMap := map[string]interface{}{
 			"mode": netConfSpec.VLAN.Mode,
@@ -579,11 +681,6 @@ func renderCNINetworkConfig(networkName, nadName string, spec SpecGetter) (map[s
 		}
 		
 		cniNetConf["vlan"] = vlanMap
-	}
-
-	// Maintain backward compatibility with legacy vlanID field
-	if netConfSpec.VLANID != 0 {
-		cniNetConf["vlanID"] = netConfSpec.VLANID
 	}
 
 	return cniNetConf, nil
@@ -661,4 +758,3 @@ func GetSpec(obj client.Object) SpecGetter {
 		panic(fmt.Sprintf("unknown type %T", obj))
 	}
 }
-
