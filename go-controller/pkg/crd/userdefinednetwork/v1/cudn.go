@@ -223,9 +223,6 @@ type LocalnetConfig struct {
 
 // TO: Enhanced VLAN support with Trunk mode
 // +kubebuilder:validation:Enum=Access;Trunk
-
-// ===================================================================
-
 type VLANMode string
 
 const (
@@ -267,19 +264,21 @@ type AccessVLANConfig struct {
 
 // TrunkVLANConfig describes a trunk VLAN configuration.
 type TrunkVLANConfig struct {
-	// allowedVLANs is a list of VLAN IDs that are allowed on the trunk port.
-	// Each VLAN ID should be higher than 0 and lower than 4095.
-	// Maximum of 100 VLANs can be specified.
+	// allowedVLANs is a list of VLAN IDs and ranges that are allowed on the trunk port.
+	// Individual VLAN IDs should be higher than 0 and lower than 4095.
+	// Ranges should be specified as "start-end" (e.g., "10-20").
+	// Maximum of 100 entries can be specified.
+	// Examples: ["10", "20-30", "100", "200-210"]
 	// +required
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=100
 	// +kubebuilder:validation:UniqueItems=true
-	AllowedVLANs []int32 `json:"allowedVLANs"`
+	AllowedVLANs []string `json:"allowedVLANs"`
 
 	// nativeVLAN is the native (untagged) VLAN ID for the trunk port.
 	// When specified, traffic for this VLAN will be untagged.
 	// nativeVLAN should be higher than 0 and lower than 4095.
-	// nativeVLAN must be included in allowedVLANs if specified.
+	// nativeVLAN must be included in allowedVLANs (either as individual ID or within a range).
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=4094
