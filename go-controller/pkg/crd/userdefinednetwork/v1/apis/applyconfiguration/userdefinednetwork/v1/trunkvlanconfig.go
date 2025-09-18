@@ -16,8 +16,8 @@ package v1
 // TrunkVLANConfigApplyConfiguration represents a declarative configuration of the TrunkVLANConfig type for use
 // with apply.
 type TrunkVLANConfigApplyConfiguration struct {
-	AllowedVLANs []int32 `json:"allowedVLANs,omitempty"`
-	NativeVLAN   *int32  `json:"nativeVLAN,omitempty"`
+	AllowedVLANs []string `json:"allowedVLANs,omitempty"`
+	NativeVLAN   *int32   `json:"nativeVLAN,omitempty"`
 }
 
 // TrunkVLANConfigApplyConfiguration constructs a declarative configuration of the TrunkVLANConfig type for use with
@@ -29,7 +29,7 @@ func TrunkVLANConfig() *TrunkVLANConfigApplyConfiguration {
 // WithAllowedVLANs sets the AllowedVLANs field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the AllowedVLANs field is set to the value of the last call.
-func (b *TrunkVLANConfigApplyConfiguration) WithAllowedVLANs(values ...int32) *TrunkVLANConfigApplyConfiguration {
+func (b *TrunkVLANConfigApplyConfiguration) WithAllowedVLANs(values ...string) *TrunkVLANConfigApplyConfiguration {
 	b.AllowedVLANs = nil
 	for i := range values {
 		b.AllowedVLANs = append(b.AllowedVLANs, values[i])
