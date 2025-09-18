@@ -621,5 +621,69 @@ var _ = Describe("NetAttachDefTemplate", func() {
 			  "allowPersistentIPs": true
 			}`,
 		),
+				// ADD THIS NEW TEST ENTRY to the existing "should create CUDN NAD from spec" DescribeTable:
+
+		Entry("secondary network, localnet with trunk VLAN",
+			udnv1.NetworkSpec{
+				Topology: udnv1.NetworkTopologyLocalnet,
+				Localnet: &udnv1.LocalnetConfig{
+					Role:                udnv1.NetworkRoleSecondary,
+					PhysicalNetworkName: "mylocalnet1",
+					MTU:                 1600,
+					VLAN: &udnv1.VLANConfig{Mode: udnv1.VLANModeTrunk,Trunk: &udnv1.TrunkVLANConfig{AllowedVLANs: []string{"10", "20-30", "100"},NativeVLAN:   ptr.To(int32(10)),},},
+					Subnets:        udnv1.DualStackCIDRs{"192.168.100.0/24", "2001:dbb::/64"},
+					ExcludeSubnets: []udnv1.CIDR{"192.168.100.1/32", "2001:dbb::0/128"},
+					IPAM: &udnv1.IPAMConfig{
+						Lifecycle: udnv1.IPAMLifecyclePersistent,
+					},
+				},
+			},
+			`{
+			  "cniVersion": "1.0.0",
+			  "type": "ovn-k8s-cni-overlay",
+			  "name": "cluster_udn_test-net",
+			  "netAttachDefName": "mynamespace/test-net",
+			  "role": "secondary",
+			  "topology": "localnet",
+    		  "physicalNetworkName": "mylocalnet1",
+			  "subnets": "192.168.100.0/24,2001:dbb::/64",
+    		  "excludeSubnets": "192.168.100.1/32,2001:dbb::0/128",
+	 		  "mtu": 1600,
+    		  "vlanTrunk": { "allowedVLANs": ["10", "20-30", "100"],"nativeVLAN": 10},
+	 		  "allowPersistentIPs": true
+			}`,
+		),
+
+		// OPTIONAL: Also add a test case without native VLAN
+		Entry("secondary network, localnet with trunk VLAN (no native)",
+			udnv1.NetworkSpec{
+				Topology: udnv1.NetworkTopologyLocalnet,
+				Localnet: &udnv1.LocalnetConfig{
+					Role:                udnv1.NetworkRoleSecondary,
+					PhysicalNetworkName: "mylocalnet1",
+					MTU:                 1600,
+					VLAN: &udnv1.VLANConfig{Mode: udnv1.VLANModeTrunk,Trunk: &udnv1.TrunkVLANConfig{AllowedVLANs: []string{"100", "200-210"},},},
+					Subnets:        udnv1.DualStackCIDRs{"192.168.100.0/24"},
+					ExcludeSubnets: []udnv1.CIDR{"192.168.100.1/32"},
+					IPAM: &udnv1.IPAMConfig{
+						Lifecycle: udnv1.IPAMLifecyclePersistent,
+					},
+				},
+			},
+			`{
+			  "cniVersion": "1.0.0",
+	 		 "type": "ovn-k8s-cni-overlay",
+	 		 "name": "cluster_udn_test-net",
+	 		 "netAttachDefName": "mynamespace/test-net",
+	 		 "role": "secondary",
+	 		 "topology": "localnet",
+     		 "physicalNetworkName": "mylocalnet1",
+	 		 "subnets": "192.168.100.0/24",
+     		 "excludeSubnets": "192.168.100.1/32",
+	 		 "mtu": 1600,
+      		"vlanTrunk": {"allowedVLANs": ["100", "200-210"]},
+	  		"allowPersistentIPs": true
+			}`,
+		),
 	)
 })
