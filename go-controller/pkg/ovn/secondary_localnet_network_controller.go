@@ -293,11 +293,23 @@ func (oc *SecondaryLocalnetNetworkController) init() error {
 		Type:      "localnet",
 		Options:   oc.localnetPortNetworkNameOptions(),
 	}
-	intVlanID := int(oc.Vlan())
-	if intVlanID != 0 {
-		logicalSwitchPort.TagRequest = &intVlanID
-	}
-
+//	intVlanID := int(oc.Vlan())
+//	if intVlanID != 0 {
+//		logicalSwitchPort.TagRequest = &intVlanID
+//	}
+// *** TO: Support both Access and Trunk modes
+	if oc.IsVLANTrunkMode() {
+    // Configure trunk port with allowed VLANs and optional native VLAN
+   		 logicalSwitchPort.Tag = oc.GetNativeVLAN() // optional native VLAN
+   		 logicalSwitchPort.Options["vlan-ranges"] = oc.GetAllowedVLANRanges()
+	} else {
+    // Original access mode logic
+    intVlanID := int(oc.Vlan())
+    if intVlanID != 0 {
+        logicalSwitchPort.TagRequest = &intVlanID
+    }
+}
+	// ----------------------------------------------
 	err = libovsdbops.CreateOrUpdateLogicalSwitchPortsOnSwitch(oc.nbClient, logicalSwitch, &logicalSwitchPort)
 	if err != nil {
 		klog.Errorf("Failed to add logical port %+v to switch %s: %v", logicalSwitchPort, switchName, err)
