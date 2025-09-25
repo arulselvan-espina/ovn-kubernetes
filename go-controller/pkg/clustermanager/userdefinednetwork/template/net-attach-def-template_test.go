@@ -621,7 +621,7 @@ var _ = Describe("NetAttachDefTemplate", func() {
 			  "allowPersistentIPs": true
 			}`,
 		),
-				// ADD THIS NEW TEST ENTRY to the existing "should create CUDN NAD from spec" DescribeTable:
+		// ADD THIS NEW TEST ENTRY to the existing "should create CUDN NAD from spec" DescribeTable:
 
 		Entry("secondary network, localnet with trunk VLAN",
 			udnv1.NetworkSpec{
@@ -630,9 +630,9 @@ var _ = Describe("NetAttachDefTemplate", func() {
 					Role:                udnv1.NetworkRoleSecondary,
 					PhysicalNetworkName: "mylocalnet1",
 					MTU:                 1600,
-					VLAN: &udnv1.VLANConfig{Mode: udnv1.VLANModeTrunk,Trunk: &udnv1.TrunkVLANConfig{AllowedVLANs: []string{"10", "20-30", "100"},NativeVLAN:   ptr.To(int32(10)),},},
-					Subnets:        udnv1.DualStackCIDRs{"192.168.100.0/24", "2001:dbb::/64"},
-					ExcludeSubnets: []udnv1.CIDR{"192.168.100.1/32", "2001:dbb::0/128"},
+					VLAN:                &udnv1.VLANConfig{Mode: udnv1.VLANModeTrunk, Trunk: &udnv1.TrunkVLANConfig{AllowedVLANs: []string{"10", "20-30", "100"}, NativeVLAN: ptr.To(int32(10))}},
+					Subnets:             udnv1.DualStackCIDRs{"192.168.100.0/24", "2001:dbb::/64"},
+					ExcludeSubnets:      []udnv1.CIDR{"192.168.100.1/32", "2001:dbb::0/128"},
 					IPAM: &udnv1.IPAMConfig{
 						Lifecycle: udnv1.IPAMLifecyclePersistent,
 					},
@@ -649,7 +649,9 @@ var _ = Describe("NetAttachDefTemplate", func() {
 			  "subnets": "192.168.100.0/24,2001:dbb::/64",
     		  "excludeSubnets": "192.168.100.1/32,2001:dbb::0/128",
 	 		  "mtu": 1600,
-    		  "vlanTrunk": { "allowedVLANs": ["10", "20-30", "100"],"nativeVLAN": 10},
+    		  "allowedVLANs": ["10", "20-30", "100"]
+			  "nativeVLAN": 10,
+			  "vlanTrunkMode": true,
 	 		  "allowPersistentIPs": true
 			}`,
 		),
@@ -662,9 +664,9 @@ var _ = Describe("NetAttachDefTemplate", func() {
 					Role:                udnv1.NetworkRoleSecondary,
 					PhysicalNetworkName: "mylocalnet1",
 					MTU:                 1600,
-					VLAN: &udnv1.VLANConfig{Mode: udnv1.VLANModeTrunk,Trunk: &udnv1.TrunkVLANConfig{AllowedVLANs: []string{"100", "200-210"},},},
-					Subnets:        udnv1.DualStackCIDRs{"192.168.100.0/24"},
-					ExcludeSubnets: []udnv1.CIDR{"192.168.100.1/32"},
+					VLAN:                &udnv1.VLANConfig{Mode: udnv1.VLANModeTrunk, Trunk: &udnv1.TrunkVLANConfig{AllowedVLANs: []string{"100", "200-210"}}},
+					Subnets:             udnv1.DualStackCIDRs{"192.168.100.0/24"},
+					ExcludeSubnets:      []udnv1.CIDR{"192.168.100.1/32"},
 					IPAM: &udnv1.IPAMConfig{
 						Lifecycle: udnv1.IPAMLifecyclePersistent,
 					},
@@ -681,7 +683,7 @@ var _ = Describe("NetAttachDefTemplate", func() {
 	 		 "subnets": "192.168.100.0/24",
      		 "excludeSubnets": "192.168.100.1/32",
 	 		 "mtu": 1600,
-      		"vlanTrunk": {"allowedVLANs": ["100", "200-210"]},
+      		"allowedVLANs": ["100", "200-210"],
 	  		"allowPersistentIPs": true
 			}`,
 		),

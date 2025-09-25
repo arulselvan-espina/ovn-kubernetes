@@ -136,6 +136,7 @@ func renderCNINetworkConfig(networkName, nadName string, spec SpecGetter) (map[s
 		netConfSpec.MTU = int(cfg.MTU)
 		netConfSpec.Subnets = layer3SubnetsString(cfg.Subnets)
 		netConfSpec.JoinSubnet = cidrString(renderJoinSubnets(cfg.Role, cfg.JoinSubnets))
+
 	case userdefinednetworkv1.NetworkTopologyLayer2:
 		cfg := spec.GetLayer2()
 		if err := validateIPAM(cfg.IPAM); err != nil {
@@ -153,51 +154,37 @@ func renderCNINetworkConfig(networkName, nadName string, spec SpecGetter) (map[s
 		netConfSpec.AllowPersistentIPs = cfg.IPAM != nil && cfg.IPAM.Lifecycle == userdefinednetworkv1.IPAMLifecyclePersistent
 		netConfSpec.Subnets = cidrString(cfg.Subnets)
 		netConfSpec.JoinSubnet = cidrString(renderJoinSubnets(cfg.Role, cfg.JoinSubnets))
-	//case userdefinednetworkv1.NetworkTopologyLocalnet:
-	//	cfg := spec.GetLocalnet()
-	//	netConfSpec.Role = strings.ToLower(string(cfg.Role))
-	//	netConfSpec.MTU = localnetMTU(cfg.MTU)
-	//	netConfSpec.AllowPersistentIPs = cfg.IPAM != nil && cfg.IPAM.Lifecycle == userdefinednetworkv1.IPAMLifecyclePersistent
-	//	netConfSpec.Subnets = cidrString(cfg.Subnets)
-	//	netConfSpec.ExcludeSubnets = cidrString(cfg.ExcludeSubnets)
-	//	netConfSpec.PhysicalNetworkName = cfg.PhysicalNetworkName
 
-	//	if cfg.VLAN != nil && cfg.VLAN.Access != nil {
-	//		netConfSpec.VLANID = int(cfg.VLAN.Access.ID)
-	//	}
-// ===================================================================
+	case userdefinednetworkv1.NetworkTopologyLocalnet:
+		cfg := spec.GetLocalnet()
+		netConfSpec.Role = strings.ToLower(string(cfg.Role))
+		netConfSpec.MTU = localnetMTU(cfg.MTU)
+		netConfSpec.AllowPersistentIPs = cfg.IPAM != nil && cfg.IPAM.Lifecycle == userdefinednetworkv1.IPAMLifecyclePersistent
+		netConfSpec.Subnets = cidrString(cfg.Subnets)
+		netConfSpec.ExcludeSubnets = cidrString(cfg.ExcludeSubnets)
+		netConfSpec.PhysicalNetworkName = cfg.PhysicalNetworkName
 
-// TO: Enhanced localnet VLAN handling (supports both Access and Trunk modes)
-case userdefinednetworkv1.NetworkTopologyLocalnet:
-	cfg := spec.GetLocalnet()
-	netConfSpec.Role = strings.ToLower(string(cfg.Role))
-	netConfSpec.MTU = localnetMTU(cfg.MTU)
-	netConfSpec.AllowPersistentIPs = cfg.IPAM != nil && cfg.IPAM.Lifecycle == userdefinednetworkv1.IPAMLifecyclePersistent
-	netConfSpec.Subnets = cidrString(cfg.Subnets)
-	netConfSpec.ExcludeSubnets = cidrString(cfg.ExcludeSubnets)
-	netConfSpec.PhysicalNetworkName = cfg.PhysicalNetworkName
-
-	if cfg.VLAN != nil {
-		switch cfg.VLAN.Mode {
-		case userdefinednetworkv1.VLANModeAccess:
-			if cfg.VLAN.Access != nil {
-				netConfSpec.VLANID = int(cfg.VLAN.Access.ID)
-			}
-		case userdefinednetworkv1.VLANModeTrunk:
-			if cfg.VLAN.Trunk != nil {
-				netConfSpec.VLANTrunk = &ovncnitypes.VLANTrunkConfig{
-					AllowedVLANs: make([]string, len(cfg.VLAN.Trunk.AllowedVLANs)),
+		if cfg.VLAN != nil {
+			switch cfg.VLAN.Mode {
+			case userdefinednetworkv1.VLANModeAccess:
+				if cfg.VLAN.Access != nil {
+					netConfSpec.VLANID = int(cfg.VLAN.Access.ID)
 				}
-				copy(netConfSpec.VLANTrunk.AllowedVLANs, cfg.VLAN.Trunk.AllowedVLANs)
-				if cfg.VLAN.Trunk.NativeVLAN != nil {
-					nativeVLAN := int(*cfg.VLAN.Trunk.NativeVLAN)
-					netConfSpec.VLANTrunk.NativeVLAN = &nativeVLAN
+			case userdefinednetworkv1.VLANModeTrunk:
+				if cfg.VLAN.Trunk != nil {
+					// Fixed: Remove comma and use proper slice assignment
+					netConfSpec.VLANAllowedRanges = make([]string, len(cfg.VLAN.Trunk.AllowedVLANs))
+					copy(netConfSpec.VLANAllowedRanges, cfg.VLAN.Trunk.AllowedVLANs)
+
+					if cfg.VLAN.Trunk.NativeVLAN != nil {
+						nativeVLAN := int(*cfg.VLAN.Trunk.NativeVLAN)
+						netConfSpec.VLANNativeID = &nativeVLAN
+					}
 				}
 			}
 		}
 	}
-// ===================================================================
-		
+
 	if netConfSpec.AllowPersistentIPs && !config.OVNKubernetesFeature.EnablePersistentIPs {
 		return nil, fmt.Errorf("allowPersistentIPs is set but persistentIPs is Disabled")
 	}
@@ -209,12 +196,7 @@ case userdefinednetworkv1.NetworkTopologyLocalnet:
 		return nil, err
 	}
 
-	// Since 'ovncnitypes.NetConf' type and its embedded 'cnitypes.NetConf' type has
-	// parameters that defined with 'ommitempty' JSON tag option but not as pointer,
-	// they will always present in the marshaed JSON, making the UDN NAD spec config
-	// having unexpected fields (e.g.:IPAM, RuntimeConfig).
-	// Generating the net-conf JSON string using 'map[string]struct{}' provide the
-	// expected result.
+	// Generate CNI network configuration map
 	cniNetConf := map[string]interface{}{
 		"cniVersion":       cniVersion,
 		"type":             OvnK8sCNIOverlay,
@@ -223,6 +205,7 @@ case userdefinednetworkv1.NetworkTopologyLocalnet:
 		"topology":         netConfSpec.Topology,
 		"role":             netConfSpec.Role,
 	}
+
 	if mtu := netConfSpec.MTU; mtu > 0 {
 		cniNetConf["mtu"] = mtu
 	}
@@ -241,24 +224,19 @@ case userdefinednetworkv1.NetworkTopologyLocalnet:
 	if len(netConfSpec.ExcludeSubnets) > 0 {
 		cniNetConf["excludeSubnets"] = netConfSpec.ExcludeSubnets
 	}
-	//if netConfSpec.VLANID != 0 {
-	//	cniNetConf["vlanID"] = netConfSpec.VLANID
-	//}
-	//return cniNetConf, nil
-// ===================================================================
-// TO: Enhanced CNI config generation (handles both vlanID and vlanTrunk)
 	if netConfSpec.VLANID != 0 {
 		cniNetConf["vlanID"] = netConfSpec.VLANID
 	}
-	if netConfSpec.VLANTrunk != nil {
-		vlanTrunk := map[string]interface{}{
-		"allowedVLANs": netConfSpec.VLANTrunk.AllowedVLANs,
+	if len(netConfSpec.VLANAllowedRanges) != 0 {
+		cniNetConf["allowedVLANs"] = netConfSpec.VLANAllowedRanges
 	}
-	if netConfSpec.VLANTrunk.NativeVLAN != nil {
-		vlanTrunk["nativeVLAN"] = *netConfSpec.VLANTrunk.NativeVLAN
+	if netConfSpec.VLANNativeID != nil {
+		cniNetConf["nativeVLAN"] = *netConfSpec.VLANNativeID
 	}
-	cniNetConf["vlanTrunk"] = vlanTrunk
-	}
+
+	// Note: VLANTrunkMode field needs to be defined in netConfSpec struct or removed
+	cniNetConf["vlanTrunkMode"] = netConfSpec.VLANTrunkMode
+
 	return cniNetConf, nil
 }
 // ===================================================================

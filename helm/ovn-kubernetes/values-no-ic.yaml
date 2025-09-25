@@ -11,7 +11,7 @@ tags:
   ovnkube-zone-controller: false
 
 # -- Endpoint of Kubernetes api server
-k8sAPIServer: https://172.25.0.2:6443
+k8sAPIServer: https://10.122.126.100:6443
 # -- IP range for Kubernetes pods, /14 is the top level range, under which each /23 range will be assigned to a node
 podNetwork: 10.244.0.0/16/24
 # -- A comma-separated set of CIDR notation IP ranges from which k8s assigns service cluster IPs. This should be the same as the value provided for kube-apiserver "--service-cluster-ip-range" option
@@ -67,9 +67,9 @@ global:
   # -- Enables multicast support between the pods within the same namespace
   enableMulticast: ""
   # -- Configure to use multiple NetworkAttachmentDefinition CRD feature with ovn-kubernetes
-  enableMultiNetwork: false
+  enableMultiNetwork: true
   # -- Configure to use user defined networks (UDN) feature with ovn-kubernetes
-  enableNetworkSegmentation: false
+  enableNetworkSegmentation: true
   # -- Configure to enable IPsec
   enableIpsec: false
   # -- Use SSL transport to NB/SB db and northd
@@ -148,17 +148,19 @@ global:
   noHostSubnetLabel: ""
   image:
     # -- Image repository for ovn-kubernetes components
-    repository: ghcr.io/ovn-kubernetes/ovn-kubernetes/ovn-kube-ubuntu
+    repository: docker.io/library/ovn-kube-ubuntu
+    # ghcr.io/ovn-kubernetes/ovn-kubernetes/ovn-kube-ubuntu
     # -- Specify image tag to run
-    tag: master
+    tag: latest
     # -- Image pull policy
     pullPolicy: IfNotPresent
   # -- Image for DPUs
   dpuImage:
     # -- Image repository for ovn-kubernetes components
-    repository: ghcr.io/ovn-kubernetes/ovn-kubernetes/ovn-kube-ubuntu
+    repository: docker.io/library/ovn-kube-ubuntu
+    # ghcr.io/ovn-kubernetes/ovn-kubernetes/ovn-kube-ubuntu
     # -- Specify image tag to run
-    tag: master
+    tag: latest
     # -- Image pull policy
     pullPolicy: IfNotPresent
   # -- The name of secret used for pulling image. Use only if needed

@@ -293,28 +293,36 @@ func (oc *SecondaryLocalnetNetworkController) init() error {
 		Type:      "localnet",
 		Options:   oc.localnetPortNetworkNameOptions(),
 	}
-	// *** TO: Support both Access and Trunk modes
+//	intVlanID := int(oc.Vlan())
+//	if intVlanID != 0 {
+//		logicalSwitchPort.TagRequest = &intVlanID
+//	}
+// *** TO: Support both Access and Trunk modes
 	if oc.IsVLANTrunkMode() {
-    		// Configure trunk port with allowed VLANs and optional native VLAN
-   		logicalSwitchPort.Tag = oc.GetNativeVLAN() // optional native VLAN
-   		// logicalSwitchPort.Options["vlan-ranges"] = oc.GetAllowedVLANRanges()
+		if nativeVLAN := oc.GetNativeVLAN(); nativeVLAN != nil {
+			logicalSwitchPort.Tag = nativeVLAN
+		}
+
+		// Create child ports for each allowed VLAN
+		return oc.createTrunkChildPorts(logicalSwitch, &logicalSwitchPort)
+
+
+    // Configure trunk port with allowed VLANs and optional native VLAN
+   		 logicalSwitchPort.Tag = oc.GetNativeVLAN() // optional native VLAN
+   		 logicalSwitchPort.Options["vlan-ranges"] = oc.GetAllowedVLANRanges()
 	} else {
-    		// Original access mode logic
-		intVlanID := int(oc.Vlan())
-    		if intVlanID != 0 {
-        		logicalSwitchPort.TagRequest = &intVlanID
-    		}
-	}
+    // Original access mode logic
+    intVlanID := int(oc.Vlan())
+    if intVlanID != 0 {
+        logicalSwitchPort.TagRequest = &intVlanID
+    }
+}
 	// ----------------------------------------------
 	err = libovsdbops.CreateOrUpdateLogicalSwitchPortsOnSwitch(oc.nbClient, logicalSwitch, &logicalSwitchPort)
 	if err != nil {
 		klog.Errorf("Failed to add logical port %+v to switch %s: %v", logicalSwitchPort, switchName, err)
 		return err
 	}
-
-	if oc.IsVLANTrunkMode() {
-        	return oc.createTrunkChildPorts(logicalSwitch, &logicalSwitchPort)
-    	}
 
 	return nil
 }
@@ -425,76 +433,3 @@ func (oc *SecondaryLocalnetNetworkController) GetAllowedVLANs() []int {
 	}
 	return nil
 }
-
-// createTrunkChildPorts creates child logical switch ports for each allowed VLAN in trunk mode
-func (oc *SecondaryLocalnetNetworkController) createTrunkChildPorts(logicalSwitch *nbdb.LogicalSwitch, parentPort *nbdb.LogicalSwitchPort) error {
-	allowedVLANs := oc.GetAllowedVLANs()
-	if len(allowedVLANs) == 0 {
-		return fmt.Errorf("no allowed VLANs configured for trunk mode")
-	}
-
-	for _, vlanID := range allowedVLANs {
-		// Skip native VLAN as it's handled by the parent port
-		if nativeVLAN := oc.GetNativeVLAN(); nativeVLAN != nil && *nativeVLAN == vlanID {
-			continue
-		}
-
-		childPortName := fmt.Sprintf("%s.%d", parentPort.Name, vlanID)
-		childPort := &nbdb.LogicalSwitchPort{
-			Name:       childPortName,
-			Addresses:  []string{"unknown"},
-			Type:       "localnet",
-			Tag:        &vlanID,
-			ParentName: &parentPort.Name,
-			Options:    oc.localnetPortNetworkNameOptions(),
-		}
-
-		// Create each child port
-		err := libovsdbops.CreateOrUpdateLogicalSwitchPortsOnSwitch(oc.nbClient, logicalSwitch, childPort)
-		if err != nil {
-			fmt.Printf("Failed to create trunk child port %s for VLAN %d: %v", childPortName, vlanID, err)
-			return err
-		}
-		fmt.Printf("Created child port %s for VLAN %d", childPortName, vlanID)
-	}
-	return nil
-}
-
-// cleanupTrunkChildPorts removes child logical switch ports for trunk mode
-func (oc *SecondaryLocalnetNetworkController) cleanupTrunkChildPorts() error {
-	if !oc.IsVLANTrunkMode() {
-		return nil
-	}
-
-	allowedVLANs := oc.GetAllowedVLANs()
-	parentPortName := oc.GetNetworkScopedName(types.OVNLocalnetPort)
-
-	for _, vlanID := range allowedVLANs {
-		// Skip native VLAN as it's handled by the parent port
-		if nativeVLAN := oc.GetNativeVLAN(); nativeVLAN != nil && *nativeVLAN == vlanID {
-			continue
-		}
-
-		childPortName := fmt.Sprintf("%s.%d", parentPortName, vlanID)
-		childPort := &nbdb.LogicalSwitchPort{Name: childPortName}
-		_ = childPort
-
-		// Delete child port (you'll need to implement this based on available functions)
-		// This is a placeholder - use whatever delete function is available
-		fmt.Printf("Cleaning up trunk child port: %s", childPortName)
-	}
-
-	return nil
-}
-
-// // Update the existing Cleanup method to include trunk cleanup
-// func (oc *SecondaryLocalnetNetworkController) Cleanup() error {
-// 	// Add trunk cleanup logic
-// 	if oc.IsVLANTrunkMode() {
-// 		if err := oc.cleanupTrunkChildPorts(); err != nil {
-// 			klog.Errorf("Failed to cleanup trunk child ports: %v", err)
-// 			// Continue with base cleanup even if trunk cleanup fails
-// 		}
-// 	}
-// 	return oc.BaseSecondaryLayer2NetworkController.cleanup()
-// }

@@ -45,7 +45,11 @@ type NetConf struct {
 	// VLANID, valid in localnet topology network only
 	VLANID int `json:"vlanID,omitempty"`
 	// ***VLANTrunk, valid in localnet topology network only (Trunk mode)***
-	VLANTrunk *VLANTrunkConfig `json:"vlanTrunk,omitempty"`
+    	VLANTrunkMode        bool     `json:"vlanTrunkMode,omitempty"`
+    	VLANNativeID         *int     `json:"vlanNativeID,omitempty"`
+    	VLANAllowedRanges    []string `json:"vlanAllowedRanges,omitempty"`
+
+
 	// AllowPersistentIPs is valid on both localnet / layer topologies.
 	// It allows for having IP allocations that outlive the pod for which
 	// they are originally created - e.g. a KubeVirt VM's migration, or

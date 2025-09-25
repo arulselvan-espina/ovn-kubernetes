@@ -36,6 +36,11 @@ type NetInfo interface {
 	IsDefault() bool
 	IsPrimaryNetwork() bool
 	IsSecondary() bool
+
+	IsVLANTrunkMode() bool
+	GetNativeVLAN() *int
+	GetAllowedVLANRangesArray() []string
+
 	TopologyType() string
 	MTU() int
 	IPMode() (bool, bool)
@@ -192,7 +197,7 @@ func copyNetInfo(netInfo NetInfo) any {
 	switch t := netInfo.GetNetInfo().(type) {
 	case *DefaultNetInfo:
 		return t.copy()
-	case *secondaryNetInfo:
+	case *SecondaryNetInfo:
 		return t.copy()
 	default:
 		panic(fmt.Errorf("unrecognized type %T", t))
@@ -203,7 +208,7 @@ func reconcilable(netInfo NetInfo) ReconcilableNetInfo {
 	switch t := netInfo.GetNetInfo().(type) {
 	case *DefaultNetInfo:
 		return t
-	case *secondaryNetInfo:
+	case *SecondaryNetInfo:
 		return t
 	default:
 		panic(fmt.Errorf("unrecognized type %T", t))
@@ -232,7 +237,7 @@ func mutable(netInfo NetInfo) *mutableNetInfo {
 	switch t := netInfo.GetNetInfo().(type) {
 	case *DefaultNetInfo:
 		return &t.mutableNetInfo
-	case *secondaryNetInfo:
+	case *SecondaryNetInfo:
 		return &t.mutableNetInfo
 	default:
 		panic(fmt.Errorf("unrecognized type %T", t))
@@ -595,7 +600,7 @@ func (nInfo *DefaultNetInfo) JoinSubnetV6() *net.IPNet {
 	return cidr
 }
 
-// JoinSubnets returns the secondaryNetInfo's joinsubnet values (both v4&v6)
+// JoinSubnets returns the SecondaryNetInfo's joinsubnet values (both v4&v6)
 // used from Equals
 func (nInfo *DefaultNetInfo) JoinSubnets() []*net.IPNet {
 	var defaultJoinSubnets []*net.IPNet
@@ -629,8 +634,25 @@ func (nInfo *DefaultNetInfo) PhysicalNetworkName() string {
 	return ""
 }
 
+// Add this method to DefaultNetInfo struct methods
+
+// IsVLANTrunkMode returns false for default network
+func (nInfo *DefaultNetInfo) IsVLANTrunkMode() bool {
+	return false
+}
+
+func (nInfo *DefaultNetInfo) GetNativeVLAN() *int {
+    // Default network doesn't support VLAN trunk mode, return nil
+    return nil
+}
+
+// GetAllowedVLANRangesArray returns nil for default network
+func (nInfo *DefaultNetInfo) GetAllowedVLANRangesArray() []string {
+	return nil
+}
+
 // SecondaryNetInfo holds the network name information for secondary network if non-nil
-type secondaryNetInfo struct {
+type SecondaryNetInfo struct {
 	mutableNetInfo
 
 	netName string
@@ -642,6 +664,10 @@ type secondaryNetInfo struct {
 	vlan               uint
 	allowPersistentIPs bool
 
+	trunkMode 	   bool      // Enable trunk mode
+	nativeVLAN         *int      // Native VLAN for untagged traffic
+	allowedVLANRanges []string   // Array of VLAN ranges (e.g., ["10-20", "30"])
+
 	ipv4mode, ipv6mode bool
 	subnets            []config.CIDRNetworkEntry
 	excludeSubnets     []*net.IPNet
@@ -650,58 +676,58 @@ type secondaryNetInfo struct {
 	physicalNetworkName string
 }
 
-func (nInfo *secondaryNetInfo) GetNetInfo() NetInfo {
+func (nInfo *SecondaryNetInfo) GetNetInfo() NetInfo {
 	return nInfo
 }
 
 // GetNetworkName returns the network name
-func (nInfo *secondaryNetInfo) GetNetworkName() string {
+func (nInfo *SecondaryNetInfo) GetNetworkName() string {
 	return nInfo.netName
 }
 
 // IsDefault always returns false for all secondary networks.
-func (nInfo *secondaryNetInfo) IsDefault() bool {
+func (nInfo *SecondaryNetInfo) IsDefault() bool {
 	return false
 }
 
 // IsPrimaryNetwork returns if this secondary network
 // should be used as the primaryNetwork for the pod
 // to achieve native network segmentation
-func (nInfo *secondaryNetInfo) IsPrimaryNetwork() bool {
+func (nInfo *SecondaryNetInfo) IsPrimaryNetwork() bool {
 	return nInfo.primaryNetwork
 }
 
 // IsSecondary returns if this network is secondary
-func (nInfo *secondaryNetInfo) IsSecondary() bool {
+func (nInfo *SecondaryNetInfo) IsSecondary() bool {
 	return true
 }
 
 // GetNetworkScopedName returns a network scoped name from the provided one
 // appropriate to use globally.
-func (nInfo *secondaryNetInfo) GetNetworkScopedName(name string) string {
+func (nInfo *SecondaryNetInfo) GetNetworkScopedName(name string) string {
 	return fmt.Sprintf("%s%s", nInfo.getPrefix(), name)
 }
 
 // RemoveNetworkScopeFromName removes the name without the network scope added
 // by a previous call to GetNetworkScopedName
-func (nInfo *secondaryNetInfo) RemoveNetworkScopeFromName(name string) string {
+func (nInfo *SecondaryNetInfo) RemoveNetworkScopeFromName(name string) string {
 	// for the default network, names are not scoped
 	return strings.Trim(name, nInfo.getPrefix())
 }
 
-func (nInfo *secondaryNetInfo) GetNetworkScopedK8sMgmtIntfName(nodeName string) string {
+func (nInfo *SecondaryNetInfo) GetNetworkScopedK8sMgmtIntfName(nodeName string) string {
 	return GetK8sMgmtIntfName(nInfo.GetNetworkScopedName(nodeName))
 }
 
-func (nInfo *secondaryNetInfo) GetNetworkScopedClusterRouterName() string {
+func (nInfo *SecondaryNetInfo) GetNetworkScopedClusterRouterName() string {
 	return nInfo.GetNetworkScopedName(types.OVNClusterRouter)
 }
 
-func (nInfo *secondaryNetInfo) GetNetworkScopedGWRouterName(nodeName string) string {
+func (nInfo *SecondaryNetInfo) GetNetworkScopedGWRouterName(nodeName string) string {
 	return GetGatewayRouterFromNode(nInfo.GetNetworkScopedName(nodeName))
 }
 
-func (nInfo *secondaryNetInfo) GetNetworkScopedSwitchName(nodeName string) string {
+func (nInfo *SecondaryNetInfo) GetNetworkScopedSwitchName(nodeName string) string {
 	// In Layer2Topology there is just one global switch
 	if nInfo.TopologyType() == types.Layer2Topology {
 		return nInfo.GetNetworkScopedName(types.OVNLayer2Switch)
@@ -709,101 +735,130 @@ func (nInfo *secondaryNetInfo) GetNetworkScopedSwitchName(nodeName string) strin
 	return nInfo.GetNetworkScopedName(nodeName)
 }
 
-func (nInfo *secondaryNetInfo) GetNetworkScopedJoinSwitchName() string {
+func (nInfo *SecondaryNetInfo) GetNetworkScopedJoinSwitchName() string {
 	return nInfo.GetNetworkScopedName(types.OVNJoinSwitch)
 }
 
-func (nInfo *secondaryNetInfo) GetNetworkScopedExtSwitchName(nodeName string) string {
+func (nInfo *SecondaryNetInfo) GetNetworkScopedExtSwitchName(nodeName string) string {
 	return GetExtSwitchFromNode(nInfo.GetNetworkScopedName(nodeName))
 }
 
-func (nInfo *secondaryNetInfo) GetNetworkScopedPatchPortName(bridgeID, nodeName string) string {
+func (nInfo *SecondaryNetInfo) GetNetworkScopedPatchPortName(bridgeID, nodeName string) string {
 	return GetPatchPortName(bridgeID, nInfo.GetNetworkScopedName(nodeName))
 }
 
-func (nInfo *secondaryNetInfo) GetNetworkScopedExtPortName(bridgeID, nodeName string) string {
+func (nInfo *SecondaryNetInfo) GetNetworkScopedExtPortName(bridgeID, nodeName string) string {
 	return GetExtPortName(bridgeID, nInfo.GetNetworkScopedName(nodeName))
 }
 
-func (nInfo *secondaryNetInfo) GetNetworkScopedLoadBalancerName(lbName string) string {
+func (nInfo *SecondaryNetInfo) GetNetworkScopedLoadBalancerName(lbName string) string {
 	return nInfo.GetNetworkScopedName(lbName)
 }
 
-func (nInfo *secondaryNetInfo) GetNetworkScopedLoadBalancerGroupName(lbGroupName string) string {
+func (nInfo *SecondaryNetInfo) GetNetworkScopedLoadBalancerGroupName(lbGroupName string) string {
 	return nInfo.GetNetworkScopedName(lbGroupName)
 }
 
 // getPrefix returns if the logical entities prefix for this network
-func (nInfo *secondaryNetInfo) getPrefix() string {
+func (nInfo *SecondaryNetInfo) getPrefix() string {
 	return GetSecondaryNetworkPrefix(nInfo.netName)
 }
 
 // TopologyType returns the topology type
-func (nInfo *secondaryNetInfo) TopologyType() string {
+func (nInfo *SecondaryNetInfo) TopologyType() string {
 	return nInfo.topology
 }
 
 // MTU returns the layer3NetConfInfo's MTU value
-func (nInfo *secondaryNetInfo) MTU() int {
+func (nInfo *SecondaryNetInfo) MTU() int {
 	return nInfo.mtu
 }
 
 // Vlan returns the Vlan value
-func (nInfo *secondaryNetInfo) Vlan() uint {
+func (nInfo *SecondaryNetInfo) Vlan() uint {
 	return nInfo.vlan
 }
 
+// IsVLANTrunkMode returns true if trunk mode is enabled
+func (nInfo *SecondaryNetInfo) IsVLANTrunkMode() bool {
+	return nInfo.trunkMode
+}
+
+// GetNativeVLAN returns the native VLAN ID for trunk mode
+func (nInfo *SecondaryNetInfo) GetNativeVLAN() *int {
+	if nInfo.trunkMode {
+		return nInfo.nativeVLAN
+	}
+	return nil
+}
+
+// GetAllowedVLANRanges returns comma-separated VLAN ranges
+func (nInfo *SecondaryNetInfo) GetAllowedVLANRanges() string {
+	if nInfo.trunkMode && len(nInfo.allowedVLANRanges) > 0 {
+		return strings.Join(nInfo.allowedVLANRanges, ",")
+	}
+	return ""
+}
+
+// GetAllowedVLANRangesArray returns the raw array of VLAN ranges
+func (nInfo *SecondaryNetInfo) GetAllowedVLANRangesArray() []string {
+	if nInfo.trunkMode {
+		return nInfo.allowedVLANRanges
+	}
+	return nil
+}
+
 // AllowsPersistentIPs returns the defaultNetConfInfo's AllowPersistentIPs value
-func (nInfo *secondaryNetInfo) AllowsPersistentIPs() bool {
+func (nInfo *SecondaryNetInfo) AllowsPersistentIPs() bool {
 	return nInfo.allowPersistentIPs
 }
 
 // PhysicalNetworkName returns the user provided physical network name value
-func (nInfo *secondaryNetInfo) PhysicalNetworkName() string {
+func (nInfo *SecondaryNetInfo) PhysicalNetworkName() string {
 	return nInfo.physicalNetworkName
 }
 
 // IPMode returns the ipv4/ipv6 mode
-func (nInfo *secondaryNetInfo) IPMode() (bool, bool) {
+func (nInfo *SecondaryNetInfo) IPMode() (bool, bool) {
 	return nInfo.ipv4mode, nInfo.ipv6mode
 }
 
 // Subnets returns the Subnets value
-func (nInfo *secondaryNetInfo) Subnets() []config.CIDRNetworkEntry {
+func (nInfo *SecondaryNetInfo) Subnets() []config.CIDRNetworkEntry {
 	return nInfo.subnets
 }
 
 // ExcludeSubnets returns the ExcludeSubnets value
-func (nInfo *secondaryNetInfo) ExcludeSubnets() []*net.IPNet {
+func (nInfo *SecondaryNetInfo) ExcludeSubnets() []*net.IPNet {
 	return nInfo.excludeSubnets
 }
 
 // JoinSubnetV4 returns the defaultNetConfInfo's JoinSubnetV4 value
 // call when ipv4mode=true
-func (nInfo *secondaryNetInfo) JoinSubnetV4() *net.IPNet {
+func (nInfo *SecondaryNetInfo) JoinSubnetV4() *net.IPNet {
 	if len(nInfo.joinSubnets) == 0 {
 		return nil // localnet topology
 	}
 	return nInfo.joinSubnets[0]
 }
 
-// JoinSubnetV6 returns the secondaryNetInfo's JoinSubnetV6 value
+// JoinSubnetV6 returns the SecondaryNetInfo's JoinSubnetV6 value
 // call when ipv6mode=true
-func (nInfo *secondaryNetInfo) JoinSubnetV6() *net.IPNet {
+func (nInfo *SecondaryNetInfo) JoinSubnetV6() *net.IPNet {
 	if len(nInfo.joinSubnets) <= 1 {
 		return nil // localnet topology
 	}
 	return nInfo.joinSubnets[1]
 }
 
-// JoinSubnets returns the secondaryNetInfo's joinsubnet values (both v4&v6)
+// JoinSubnets returns the SecondaryNetInfo's joinsubnet values (both v4&v6)
 // used from Equals (since localnet doesn't have joinsubnets to compare nil v/s nil
 // we need this util)
-func (nInfo *secondaryNetInfo) JoinSubnets() []*net.IPNet {
+func (nInfo *SecondaryNetInfo) JoinSubnets() []*net.IPNet {
 	return nInfo.joinSubnets
 }
 
-func (nInfo *secondaryNetInfo) canReconcile(other NetInfo) bool {
+func (nInfo *SecondaryNetInfo) canReconcile(other NetInfo) bool {
 	if (nInfo == nil) != (other == nil) {
 		return false
 	}
@@ -849,9 +904,9 @@ func (nInfo *secondaryNetInfo) canReconcile(other NetInfo) bool {
 	return cmp.Equal(nInfo.joinSubnets, other.JoinSubnets(), cmpopts.SortSlices(lessIPNet))
 }
 
-func (nInfo *secondaryNetInfo) copy() *secondaryNetInfo {
+func (nInfo *SecondaryNetInfo) copy() *SecondaryNetInfo {
 	// everything here is immutable
-	c := &secondaryNetInfo{
+	c := &SecondaryNetInfo{
 		netName:             nInfo.netName,
 		primaryNetwork:      nInfo.primaryNetwork,
 		topology:            nInfo.topology,
@@ -880,7 +935,7 @@ func newLayer3NetConfInfo(netconf *ovncnitypes.NetConf) (MutableNetInfo, error) 
 	if err != nil {
 		return nil, err
 	}
-	ni := &secondaryNetInfo{
+	ni := &SecondaryNetInfo{
 		netName:        netconf.Name,
 		primaryNetwork: netconf.Role == types.NetworkRolePrimary,
 		topology:       types.Layer3Topology,
@@ -905,7 +960,7 @@ func newLayer2NetConfInfo(netconf *ovncnitypes.NetConf) (MutableNetInfo, error) 
 	if err != nil {
 		return nil, err
 	}
-	ni := &secondaryNetInfo{
+	ni := &SecondaryNetInfo{
 		netName:            netconf.Name,
 		primaryNetwork:     netconf.Role == types.NetworkRolePrimary,
 		topology:           types.Layer2Topology,
@@ -929,7 +984,7 @@ func newLocalnetNetConfInfo(netconf *ovncnitypes.NetConf) (MutableNetInfo, error
 		return nil, fmt.Errorf("invalid %s netconf %s: %v", netconf.Topology, netconf.Name, err)
 	}
 
-	ni := &secondaryNetInfo{
+	ni := &SecondaryNetInfo{
 		netName:             netconf.Name,
 		topology:            types.LocalnetTopology,
 		subnets:             subnets,
